@@ -145,7 +145,7 @@ func watchJarFile(dir, targetFile string) {
 func main() {
 	// 启动旧jar进程（监听8080），旧jar路径保持不变
 	oldPort := 8080
-	oldJarPath := "/usr/share/service/old.jar"
+	oldJarPath := "/opt/yjzh/server/old.jar"
 	cmd, err := startJarProcess(oldJarPath, oldPort)
 	if err != nil {
 		log.Fatalf("启动旧jar失败: %v", err)
@@ -156,22 +156,11 @@ func main() {
 	log.Printf("旧jar进程启动在端口 %d", oldPort)
 
 	// 监控所在目录（例如 /usr/share/service），目标文件为旧jar（被替换时触发更新）
-	dirToWatch := "/usr/share/service"
+	dirToWatch := "/opt/yjzh/server"
 	// 这里目标文件路径与容器内实际的jar路径保持一致
-	targetFile := "/usr/share/service/old.jar"
+	targetFile := "/opt/yjzh/server/old.jar"
 	go watchJarFile(dirToWatch, targetFile)
 
-	// 提供HTTP接口（可选，支持手动触发更新）和反向代理
-	http.HandleFunc("/update", func(w http.ResponseWriter, r *http.Request) {
-		jarParam := r.URL.Query().Get("jar")
-		if jarParam == "" {
-			http.Error(w, "jar query parameter required", http.StatusBadRequest)
-			return
-		}
-		log.Println("手动更新触发")
-		autoUpdate(jarParam)
-		w.Write([]byte("Update succeeded, traffic switched to new jar"))
-	})
 	http.HandleFunc("/", reverseProxyHandler)
 
 	log.Println("管理服务启动在端口 80")
