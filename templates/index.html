@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head><title>服务管理</title></head>
+<body>
+<h1>当前服务</h1>
+{{ if .Active }}
+<p>状态: {{ .Active.Status }}</p>
+<p>启动时间: {{ .Active.StartTime }}</p>
+<p>版本: {{ .Active.Version }}</p>
+{{ else }}
+<p>暂无运行服务</p>
+{{ end }}
+
+<h2>上传 JAR</h2>
+<form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="jar" />
+    <button type="submit">部署</button>
+</form>
+
+<h2>新服务</h2>
+{{ if .New }}
+<p>状态: {{ .New.Status }}</p>
+<p>启动时间: {{ .New.StartTime }}</p>
+<p>版本: {{ .New.Version }}</p>
+<form action="/switch" method="post">
+    <button type="submit">切换到新版本</button>
+</form>
+{{ else }}
+<p>暂无新服务</p>
+{{ end }}
+
+<p><a href="/versions">历史版本</a></p>
+</body>
+</html>

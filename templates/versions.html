@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>版本历史</title>
+</head>
+<body>
+<h1>历史版本</h1>
+<table>
+    <tr>
+        <th>版本时间</th>
+        <th>操作</th>
+    </tr>
+    {{range .Versions}}
+    <tr>
+        <td>{{.Time}}</td>
+        <td>
+            <form action="/rollback" method="post">
+                <input type="hidden" name="version" value="{{.Time}}">
+                <button type="submit">回滚到此版本</button>
+            </form>
+        </td>
+    </tr>
+    {{end}}
+</table>
+<a href="/"><button>返回首页</button></a>
+</body>
+</html>
