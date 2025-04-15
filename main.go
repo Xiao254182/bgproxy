@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -243,12 +244,18 @@ func startNewService(instance *ServiceInstance, jarPath string, port int) error 
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
-	instance.Cmd = cmd
-
 	if err := cmd.Start(); err != nil {
 		log.Printf("❌ 启动失败：%v\n", err)
 		return err
 	}
+
+	// // 启动后台协程等待结束，避免僵尸进程
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			log.Printf("🛑 停止旧服务子进程:（%d）：%v\n", cmd.Process.Pid, err)
+		}
+	}()
 
 	newInstance = &ServiceInstance{
 		Port:      port,
@@ -256,7 +263,7 @@ func startNewService(instance *ServiceInstance, jarPath string, port int) error 
 		Status:    StatusStarting,
 		StartTime: time.Now(),
 		JarPath:   jarPath,
-		Version:   time.Now().Format("2006-01-02_15-04-05"),
+		Version:   time.Now().Format("2025-04-15_15-04-05"),
 	}
 
 	go monitorService(newInstance)
@@ -298,24 +305,13 @@ func checkHealth(port int) bool {
 }
 
 // 停止服务
-func stopService(instance *ServiceInstance) {
+func stopService(instance *ServiceInstance) error {
 	log.Printf("🛑 停止旧服务 PID: %d\n", instance.PID)
-
-	if instance.Cmd != nil && instance.Cmd.Process != nil {
-		if err := instance.Cmd.Process.Kill(); err != nil {
-			log.Printf("❌ 杀死服务失败: %v\n", err)
-			return
-		}
-
-		// ⭐️ 回收进程资源
-		if _, err := instance.Cmd.Process.Wait(); err != nil {
-			log.Printf("❗Wait 失败，可能已经是僵尸进程: %v\n", err)
-		} else {
-			log.Printf("✅ 服务 PID %d 已彻底退出并清理\n", instance.PID)
-		}
-	} else {
-		log.Println("⚠️ 无法停止：找不到有效的 Cmd 或 Process 对象")
+	err := syscall.Kill(instance.PID, syscall.SIGKILL)
+	if err != nil {
+		return fmt.Errorf("无法杀死进程 %d: %w", instance.PID, err)
 	}
+	return nil
 }
 
 // 备份版本
@@ -369,7 +365,7 @@ func safeTime(instance *ServiceInstance) string {
 	if instance == nil {
 		return ""
 	}
-	return instance.StartTime.Format("2006-01-02 15:04:05")
+	return instance.StartTime.Format("2025-04-15_15-04-05")
 }
 
 func safeVersion(instance *ServiceInstance) string {
