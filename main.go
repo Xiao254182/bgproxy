@@ -1,168 +1,351 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"html/template"
+	"io"
 	"log"
-	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
+	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
+// 全局配置
+const (
+	JarPath      = "/usr/share/service/app.jar"
+	UploadDir    = "/usr/share/service/versions"
+	ReadTimeout  = 30 * time.Second
+	WriteTimeout = 30 * time.Second
+)
+
+// 全局状态
 var (
+	CurrentPort      = 8081
+	StandbyPort      = 8082
+	currentVersion   = "v1.0.0"
+	standbyVersion   = "v1.0.0"
+	activeProcess    *os.Process
 	mu               sync.RWMutex
-	activeBackendURL *url.URL
-	currentCmd       *exec.Cmd // 保存当前正在运行的jar进程句柄
+	requestCounter   *prometheus.CounterVec
+	requestHistogram *prometheus.HistogramVec
 )
 
-func setActiveBackend(u *url.URL) {
+// 初始化Prometheus指标
+func initMetrics() {
+	requestCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+
+	requestHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "HTTP request duration",
+			Buckets: []float64{0.1, 0.3, 0.5, 1, 2},
+		},
+		[]string{"method", "path", "status"},
+	)
+
+	prometheus.MustRegister(requestCounter, requestHistogram)
+}
+
+// 主函数
+func main() {
+	initMetrics()
+
+	// 初始化Gin引擎
+	router := gin.Default()
+	router.SetFuncMap(template.FuncMap{
+		"formatTime": formatTime,
+	})
+	router.LoadHTMLGlob("templates/*")
+	router.Static("/static", "./static")
+
+	// 中间件
+	router.Use(authMiddleware())
+	router.Use(metricsMiddleware())
+
+	// 路由配置
+	router.GET("/", dashboardHandler)
+	router.GET("/status", statusHandler)
+	router.GET("/versions", listVersionsHandler)
+	router.POST("/upload", uploadHandler)
+	router.POST("/deploy", deployHandler)
+	router.POST("/rollback", rollbackHandler)
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// 启动后台任务
+	go healthMonitor()
+
+	// 启动HTTP服务
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      router,
+		ReadTimeout:  ReadTimeout,
+		WriteTimeout: WriteTimeout,
+	}
+
+	// 优雅关闭
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server shutdown error:", err)
+	}
+}
+
+// 仪表盘处理器
+func dashboardHandler(c *gin.Context) {
+	c.HTML(http.StatusOK, "dashboard.tmpl", gin.H{
+		"CurrentVersion": currentVersion,
+		"StandbyVersion": standbyVersion,
+		"HealthStatus":   checkHealth(CurrentPort),
+	})
+}
+
+// 添加 listVersionsHandler 空实现
+func listVersionsHandler(c *gin.Context) {
+	files, err := filepath.Glob(filepath.Join(UploadDir, "app-*.jar"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	versions := []string{}
+	for _, file := range files {
+		versions = append(versions, filepath.Base(file))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"versions": versions})
+}
+
+// 添加 rollbackHandler 空实现
+func rollbackHandler(c *gin.Context) {
+	// 这里简单地交换版本（模拟回滚）
+	mu.Lock()
+	currentVersion, standbyVersion = standbyVersion, currentVersion
+	CurrentPort, StandbyPort = StandbyPort, CurrentPort
+	mu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Rollback triggered",
+	})
+}
+
+// 状态接口
+func statusHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"current":  currentVersion,
+		"standby":  standbyVersion,
+		"healthy":  checkHealth(CurrentPort),
+		"requests": getRequestCount(),
+	})
+}
+
+// 文件上传处理器
+func uploadHandler(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	version := c.PostForm("version")
+	if version == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "version required"})
+		return
+	}
+
+	dst := filepath.Join(UploadDir, fmt.Sprintf("app-%s.jar", version))
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Uploaded %s", version),
+		"path":    dst,
+	})
+}
+
+// 部署处理器
+func deployHandler(c *gin.Context) {
+	version := c.PostForm("version")
+	if version == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "version required"})
+		return
+	}
+
+	if err := performDeployment(version); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Deployed %s", version),
+	})
+}
+
+// 执行部署
+func performDeployment(version string) error {
+	// 停止备用进程
+	if err := stopProcess(standbyVersion); err != nil {
+		return err
+	}
+
+	// 启动新版本
+	if err := startProcess(version, StandbyPort); err != nil {
+		return err
+	}
+
+	// 健康检查
+	if !checkHealth(StandbyPort) {
+		return fmt.Errorf("health check failed for %s", version)
+	}
+
+	// 切换流量
+	mu.Lock()
+	currentVersion, standbyVersion = standbyVersion, currentVersion
+	CurrentPort, StandbyPort = StandbyPort, CurrentPort
+	mu.Unlock()
+
+	// 清理旧版本
+	go func() {
+		time.Sleep(5 * time.Minute)
+		os.Remove(filepath.Join(UploadDir, fmt.Sprintf("app-%s.jar", standbyVersion)))
+	}()
+
+	return nil
+}
+
+// 启动Java进程
+func startProcess(version string, port int) error {
+	cmd := exec.Command("java", "-jar",
+		filepath.Join(UploadDir, fmt.Sprintf("app-%s.jar", version)),
+		fmt.Sprintf("--server.port=%d", port),
+	)
+
+	logFile, err := os.Create(fmt.Sprintf("/var/log/app/%s.log", version))
+	if err != nil {
+		return err
+	}
+
+	cmd.Stdout = io.MultiWriter(os.Stdout, logFile)
+	cmd.Stderr = cmd.Stdout
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	mu.Lock()
+	activeProcess = cmd.Process
+	mu.Unlock()
+
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("Process %s exited: %v", version, err)
+		}
+	}()
+
+	return nil
+}
+
+// 停止进程
+func stopProcess(version string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	activeBackendURL = u
-}
 
-func getActiveBackend() *url.URL {
-	mu.RLock()
-	defer mu.RUnlock()
-	return activeBackendURL
-}
-
-// tcpProbe 检查指定地址的TCP连接是否可用
-func tcpProbe(address string, timeout time.Duration) bool {
-	conn, err := net.DialTimeout("tcp", address, timeout)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
-}
-
-// reverseProxyHandler 将所有流量转发到当前激活的jar服务
-func reverseProxyHandler(w http.ResponseWriter, r *http.Request) {
-	backend := getActiveBackend()
-	if backend == nil {
-		http.Error(w, "backend not set", http.StatusServiceUnavailable)
-		return
-	}
-	proxy := httputil.NewSingleHostReverseProxy(backend)
-	proxy.ServeHTTP(w, r)
-}
-
-// startJarProcess 启动jar包进程，jarPath指定jar文件路径，port为启动端口
-func startJarProcess(jarPath string, port int) (*exec.Cmd, error) {
-	cmd := exec.Command("java", "-jar", jarPath, fmt.Sprintf("--server.port=%d", port))
-	cmd.Stdout = log.Writer()
-	cmd.Stderr = log.Writer()
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	return cmd, nil
-}
-
-// autoUpdate 封装自动更新逻辑：启动新jar、健康检测、切换流量并终止旧进程
-func autoUpdate(newJarPath string) {
-	newPort := 8081
-	log.Printf("自动更新：启动新jar进程，jar路径：%s, 端口：%d", newJarPath, newPort)
-	newCmd, err := startJarProcess(newJarPath, newPort)
-	if err != nil {
-		log.Printf("启动新jar失败: %v", err)
-		return
-	}
-	// 等待新jar启动并通过TCP探测
-	healthAddr := fmt.Sprintf("localhost:%d", newPort)
-	deadline := time.Now().Add(2 * time.Minute)
-	for time.Now().Before(deadline) {
-		if tcpProbe(healthAddr, 5*time.Second) {
-			log.Println("新jar服务TCP探测成功")
-			break
-		}
-		log.Println("等待新jar服务TCP探测...")
-		time.Sleep(5 * time.Second)
-	}
-	if !tcpProbe(healthAddr, 5*time.Second) {
-		log.Println("新jar服务在规定时间内未通过TCP探测，终止新jar进程")
-		newCmd.Process.Kill()
-		return
-	}
-
-	// 更新反向代理，切换流量到新jar服务
-	newURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", newPort))
-	setActiveBackend(newURL)
-	log.Println("流量切换到新jar服务")
-	// 杀死旧jar进程
-	if currentCmd != nil {
-		err := currentCmd.Process.Kill()
-		if err != nil {
-			log.Printf("终止旧jar进程失败: %v", err)
-		} else {
-			log.Println("旧jar进程已终止")
+	if activeProcess != nil {
+		if err := activeProcess.Kill(); err != nil {
+			return err
 		}
 	}
-	// 更新全局变量保存新jar进程
-	currentCmd = newCmd
+	return nil
 }
 
-// watchJarFile 监控指定目录下的jar文件，当目标jar文件被修改时触发自动更新
-func watchJarFile(dir, targetFile string) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatalf("创建文件监控失败: %v", err)
+// 健康检查
+func checkHealth(port int) bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/health", port))
+	return err == nil && resp.StatusCode == http.StatusOK
+}
+
+// 认证中间件
+func authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetHeader("X-API-Key") != os.Getenv("API_KEY") {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+		c.Next()
 	}
-	// 添加目录监控
-	err = watcher.Add(dir)
-	if err != nil {
-		log.Fatalf("添加监控目录失败: %v", err)
+}
+
+// 指标中间件
+func metricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+
+		c.Next()
+
+		duration := time.Since(start)
+		status := fmt.Sprintf("%d", c.Writer.Status())
+
+		requestCounter.WithLabelValues(
+			c.Request.Method,
+			c.Request.URL.Path,
+			status,
+		).Inc()
+
+		requestHistogram.WithLabelValues(
+			c.Request.Method,
+			c.Request.URL.Path,
+			status,
+		).Observe(duration.Seconds())
 	}
-	log.Printf("开始监控目录: %s，目标文件: %s", dir, targetFile)
-	for {
-		select {
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return
-			}
-			// 过滤出目标文件的事件
-			if filepath.Clean(event.Name) == filepath.Clean(targetFile) &&
-				(event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
-				log.Printf("检测到目标jar文件变化: %v", event)
-				// 自动触发更新操作
-				autoUpdate(targetFile)
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			log.Printf("文件监控错误: %v", err)
+}
+
+// 其他辅助函数
+func formatTime(t time.Time) string {
+	return t.Format("2006-01-02 15:04:05")
+}
+
+func getRequestCount() float64 {
+	if counter, err := requestCounter.GetMetricWithLabelValues("GET", "/", "200"); err == nil {
+		val := testutil.ToFloat64(counter)
+		return val
+	}
+	return 0
+}
+
+func healthMonitor() {
+	ticker := time.NewTicker(30 * time.Second)
+	for range ticker.C {
+		if !checkHealth(CurrentPort) {
+			log.Printf("Critical: current version (%s) is unhealthy", currentVersion)
 		}
 	}
-}
-
-func main() {
-	// 启动旧jar进程（监听8080），旧jar路径保持不变
-	oldPort := 8080
-	oldJarPath := "/opt/yjzh/server/old.jar"
-	cmd, err := startJarProcess(oldJarPath, oldPort)
-	if err != nil {
-		log.Fatalf("启动旧jar失败: %v", err)
-	}
-	currentCmd = cmd
-	backendURL, _ := url.Parse(fmt.Sprintf("http://localhost:%d", oldPort))
-	setActiveBackend(backendURL)
-	log.Printf("旧jar进程启动在端口 %d", oldPort)
-
-	// 监控所在目录（例如 /usr/share/service），目标文件为旧jar（被替换时触发更新）
-	dirToWatch := "/opt/yjzh/server"
-	// 这里目标文件路径与容器内实际的jar路径保持一致
-	targetFile := "/opt/yjzh/server/old.jar"
-	go watchJarFile(dirToWatch, targetFile)
-
-	http.HandleFunc("/", reverseProxyHandler)
-
-	log.Println("管理服务启动在端口 80")
-	log.Fatal(http.ListenAndServe(":80", nil))
 }
