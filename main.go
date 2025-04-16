@@ -96,8 +96,8 @@ func indexHandler(c *gin.Context) {
 // 日志接口
 func streamLogHandler(c *gin.Context) {
 	service := c.Param("service")
-
 	var instance *ServiceInstance
+
 	mu.Lock()
 	if service == "active" {
 		instance = activeInstance
@@ -124,14 +124,30 @@ func streamLogHandler(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	reader := bufio.NewReader(file)
-	file.Seek(0, 2) // seek to end of file
+
+	// 先返回整个文件的内容（历史日志）
+	file.Seek(0, 0) // 从文件开始读取
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break // 文件内容全部读取完
+		}
+		fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+		c.Writer.Flush()
+	}
+
+	// 然后开始实时输出新日志
+	// 跳过文件的现有内容，从末尾开始读取
+	file.Seek(0, 2)
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			// 如果没有新内容，继续等待
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
+		// 输出新的日志行到前端
 		fmt.Fprintf(c.Writer, "data: %s\n\n", line)
 		c.Writer.Flush()
 	}
@@ -272,6 +288,8 @@ func startNewService(jarPath string, port int) error {
 
 	version := time.Now().Format("2006-01-02_15-04-05")
 	logFilePath := fmt.Sprintf("./logs/%s.log", version)
+
+	// 以追加模式打开文件，避免覆盖之前的日志
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Printf("❌ 创建日志文件失败: %v\n", err)
@@ -294,13 +312,14 @@ func startNewService(jarPath string, port int) error {
 		}
 	}()
 
+	// 设置新实例
 	newInstance = &ServiceInstance{
 		Port:      port,
 		PID:       cmd.Process.Pid,
 		Status:    StatusStarting,
 		StartTime: time.Now(),
 		JarPath:   jarPath,
-		Version:   version, // ⬅️ 用时间戳作为唯一版本号
+		Version:   version, // 使用时间戳作为唯一版本号
 	}
 
 	go monitorService(newInstance)
