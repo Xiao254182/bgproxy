@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bgproxy/models"
 	"fmt"
 	"log"
 	"os"
@@ -11,9 +12,9 @@ import (
 )
 
 // 启动新服务
-func startNewService(jarPath string, port int) error {
-	mu.Lock()
-	defer mu.Unlock()
+func StartNewService(jarPath string, port int) error {
+	models.Mu.Lock()
+	defer models.Mu.Unlock()
 
 	log.Printf("🟡 启动新服务：%s，端口：%d\n", jarPath, port)
 
@@ -44,21 +45,21 @@ func startNewService(jarPath string, port int) error {
 	}()
 
 	// 设置新实例
-	newInstance = &ServiceInstance{
+	models.NewInstance = &models.ServiceInstance{
 		Port:      port,
 		PID:       cmd.Process.Pid,
-		Status:    StatusStarting,
+		Status:    models.StatusStarting,
 		StartTime: time.Now(),
 		JarPath:   jarPath,
 		Version:   version, // 使用时间戳作为唯一版本号
 	}
 
-	go monitorService(newInstance)
+	go monitorService(models.NewInstance)
 	return nil
 }
 
 // 停止服务
-func stopService(instance *ServiceInstance) error {
+func StopService(instance *models.ServiceInstance) error {
 	log.Printf("🛑 停止旧服务 PID: %d\n", instance.PID)
 	err := syscall.Kill(instance.PID, syscall.SIGKILL)
 	if err != nil {

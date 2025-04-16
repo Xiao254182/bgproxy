@@ -1,20 +1,19 @@
 package utils
 
 import (
+	"bgproxy/models"
+	"bgproxy/service"
 	"github.com/gin-gonic/gin"
-	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 )
 
 // 版本回滚
-func rollbackHandler(c *gin.Context) {
+func RollbackHandler(c *gin.Context) {
 	versionTime := c.PostForm("version")
 
 	// 查找对应版本
-	var targetVersion *VersionInfo
-	for _, v := range versions {
+	var targetVersion *models.VersionInfo
+	for _, v := range models.Versions {
 		if v.Time == versionTime {
 			targetVersion = &v
 			break
@@ -33,7 +32,7 @@ func rollbackHandler(c *gin.Context) {
 		return
 	}
 
-	if err := startNewService(targetVersion.JarPath, port); err != nil {
+	if err := service.StartNewService(targetVersion.JarPath, port); err != nil {
 		c.String(http.StatusInternalServerError, "启动失败: "+err.Error())
 		return
 	}

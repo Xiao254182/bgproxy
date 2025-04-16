@@ -31,9 +31,9 @@ type VersionInfo struct {
 }
 
 var (
-	activeInstance *ServiceInstance
-	newInstance    *ServiceInstance
-	versions       []VersionInfo
-	mu             sync.Mutex
-	proxy          *httputil.ReverseProxy
+	ActiveInstance *ServiceInstance
+	NewInstance    *ServiceInstance
+	Versions       []VersionInfo
+	Mu             sync.Mutex
+	Proxy          *httputil.ReverseProxy
 )

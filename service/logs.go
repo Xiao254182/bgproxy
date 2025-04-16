@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bgproxy/models"
 	"bufio"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -10,18 +11,18 @@ import (
 )
 
 // 日志接口
-func streamLogHandler(c *gin.Context) {
+func StreamLogHandler(c *gin.Context) {
 	service := c.Param("service")
 	full := c.DefaultQuery("full", "0") == "1" // 获取 full 参数
-	var instance *ServiceInstance
+	var instance *models.ServiceInstance
 
-	mu.Lock()
+	models.Mu.Lock()
 	if service == "active" {
-		instance = activeInstance
+		instance = models.ActiveInstance
 	} else if service == "new" {
-		instance = newInstance
+		instance = models.NewInstance
 	}
-	mu.Unlock()
+	models.Mu.Unlock()
 
 	if instance == nil {
 		c.String(http.StatusNotFound, "服务实例不存在")

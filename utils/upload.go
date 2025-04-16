@@ -1,13 +1,14 @@
 package utils
 
 import (
+	"bgproxy/service"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"path/filepath"
 )
 
 // 文件上传
-func uploadHandler(c *gin.Context) {
+func UploadHandler(c *gin.Context) {
 	file, err := c.FormFile("jar")
 	if err != nil {
 		c.String(http.StatusBadRequest, "上传失败: "+err.Error())
@@ -27,7 +28,7 @@ func uploadHandler(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "没有可用端口")
 		return
 	}
-	if err := startNewService(newJar, port); err != nil {
+	if err := service.StartNewService(newJar, port); err != nil {
 		c.String(http.StatusInternalServerError, "启动失败: "+err.Error())
 		return
 	}

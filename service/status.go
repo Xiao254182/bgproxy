@@ -1,34 +1,21 @@
 package service
 
 import (
+	"bgproxy/models"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"net"
-	"net/http"
 	"time"
 )
 
 // 服务状态接口
-func statusHandler(c *gin.Context) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	c.JSON(http.StatusOK, gin.H{
-		"active": map[string]interface{}{
-			"status":    safeStatus(activeInstance),
-			"startTime": safeTime(activeInstance),
-			"version":   safeVersion(activeInstance),
-		},
-		"new": map[string]interface{}{
-			"status":    safeStatus(newInstance),
-			"startTime": safeTime(newInstance),
-			"version":   safeVersion(newInstance),
-		},
-	})
+func StatusHandler(c *gin.Context) {
+	models.Mu.Lock()
+	defer models.Mu.Unlock()
 }
 
 // 服务监控
-func monitorService(instance *ServiceInstance) {
+func monitorService(instance *models.ServiceInstance) {
 	timeout := time.After(5 * time.Minute)
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -37,15 +24,15 @@ func monitorService(instance *ServiceInstance) {
 		select {
 		case <-ticker.C:
 			if checkHealth(instance.Port) {
-				mu.Lock()
-				instance.Status = StatusRunning
-				mu.Unlock()
+				models.Mu.Lock()
+				instance.Status = models.StatusRunning
+				models.Mu.Unlock()
 				return
 			}
 		case <-timeout:
-			mu.Lock()
-			instance.Status = StatusError
-			mu.Unlock()
+			models.Mu.Lock()
+			instance.Status = models.StatusError
+			models.Mu.Unlock()
 			return
 		}
 	}
