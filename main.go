@@ -96,7 +96,7 @@ func indexHandler(c *gin.Context) {
 // 日志接口
 func streamLogHandler(c *gin.Context) {
 	service := c.Param("service")
-	full := c.DefaultQuery("full", "0") == "1" // 新增：获取 full 参数
+	full := c.DefaultQuery("full", "0") == "1" // 获取 full 参数
 	var instance *ServiceInstance
 
 	mu.Lock()
@@ -128,7 +128,7 @@ func streamLogHandler(c *gin.Context) {
 
 	// 根据 full 参数决定是否读取历史日志
 	if full {
-		file.Seek(0, 0)
+		file.Seek(0, 0) // 文件指针返回到文件开头
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
@@ -137,9 +137,10 @@ func streamLogHandler(c *gin.Context) {
 			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
 			c.Writer.Flush()
 		}
-	} else {
-		file.Seek(0, 2) // 直接跳到文件末尾
 	}
+
+	// 跳到文件末尾，开始实时读取新增日志
+	file.Seek(0, 2) // 直接跳到文件末尾
 
 	// 实时读取新增日志
 	for {
