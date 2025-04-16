@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"html/template"
 	"log"
@@ -97,8 +96,22 @@ func indexHandler(c *gin.Context) {
 // 日志接口
 func streamLogHandler(c *gin.Context) {
 	service := c.Param("service")
-	logFile := fmt.Sprintf("./logs/%s.log", service)
 
+	var instance *ServiceInstance
+	mu.Lock()
+	if service == "active" {
+		instance = activeInstance
+	} else if service == "new" {
+		instance = newInstance
+	}
+	mu.Unlock()
+
+	if instance == nil {
+		c.String(http.StatusNotFound, "服务实例不存在")
+		return
+	}
+
+	logFile := fmt.Sprintf("./logs/%s.log", instance.Version)
 	file, err := os.Open(logFile)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "无法打开日志文件: %v", err)
@@ -111,9 +124,7 @@ func streamLogHandler(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 
 	reader := bufio.NewReader(file)
-
-	// 跳过之前的内容，模拟“滚动日志”
-	file.Seek(0, 2)
+	file.Seek(0, 2) // seek to end of file
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -176,9 +187,7 @@ func uploadHandler(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "没有可用端口")
 		return
 	}
-	instance := &ServiceInstance{}
-
-	if err := startNewService(instance, newJar, port); err != nil {
+	if err := startNewService(newJar, port); err != nil {
 		c.String(http.StatusInternalServerError, "启动失败: "+err.Error())
 		return
 	}
@@ -241,9 +250,7 @@ func rollbackHandler(c *gin.Context) {
 		return
 	}
 
-	instance := &ServiceInstance{}
-
-	if err := startNewService(instance, targetVersion.JarPath, port); err != nil {
+	if err := startNewService(targetVersion.JarPath, port); err != nil {
 		c.String(http.StatusInternalServerError, "启动失败: "+err.Error())
 		return
 	}
@@ -257,27 +264,33 @@ func reverseProxyHandler(c *gin.Context) {
 }
 
 // 启动新服务
-func startNewService(instance *ServiceInstance, jarPath string, port int) error {
+func startNewService(jarPath string, port int) error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	log.Printf("🟡 启动新服务：%s，端口：%d\n", jarPath, port)
 
+	version := time.Now().Format("2006-01-02_15-04-05")
+	logFilePath := fmt.Sprintf("./logs/%s.log", version)
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("❌ 创建日志文件失败: %v\n", err)
+		return err
+	}
+
 	cmd := exec.Command("java", "-jar", jarPath, "--server.port="+strconv.Itoa(port))
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("❌ 启动失败：%v\n", err)
 		return err
 	}
 
-	// // 启动后台协程等待结束，避免僵尸进程
 	go func() {
 		err := cmd.Wait()
 		if err != nil {
-			log.Printf("🛑 停止旧服务子进程:（%d）：%v\n", cmd.Process.Pid, err)
+			log.Printf("🛑 服务进程异常退出:（%d）：%v\n", cmd.Process.Pid, err)
 		}
 	}()
 
@@ -287,7 +300,7 @@ func startNewService(instance *ServiceInstance, jarPath string, port int) error 
 		Status:    StatusStarting,
 		StartTime: time.Now(),
 		JarPath:   jarPath,
-		Version:   time.Now().Format("2025-04-15_15-04-05"),
+		Version:   version, // ⬅️ 用时间戳作为唯一版本号
 	}
 
 	go monitorService(newInstance)
