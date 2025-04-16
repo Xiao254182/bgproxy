@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"html/template"
@@ -76,7 +77,7 @@ func main() {
 	r.POST("/switch", switchHandler)
 	r.POST("/rollback", rollbackHandler)
 	r.Any("/service/*path", reverseProxyHandler)
-	r.GET("/log", logHandler)
+	r.GET("/stream-log/:service", streamLogHandler)
 
 	log.Println("🔥 管理平台已启动: http://localhost:3000")
 	log.Fatal(r.Run(":3000"))
@@ -94,12 +95,35 @@ func indexHandler(c *gin.Context) {
 }
 
 // 日志接口
-func logHandler(c *gin.Context) {
-	if newInstance == nil {
-		c.String(http.StatusNotFound, "没有可用实例")
+func streamLogHandler(c *gin.Context) {
+	service := c.Param("service")
+	logFile := fmt.Sprintf("./logs/%s.log", service)
+
+	file, err := os.Open(logFile)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "无法打开日志文件: %v", err)
 		return
 	}
-	c.String(http.StatusOK, newInstance.Cmd.Stdout.(*bytes.Buffer).String())
+	defer file.Close()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+
+	reader := bufio.NewReader(file)
+
+	// 跳过之前的内容，模拟“滚动日志”
+	file.Seek(0, 2)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+		c.Writer.Flush()
+	}
 }
 
 // 服务状态接口

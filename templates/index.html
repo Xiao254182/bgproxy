@@ -6,6 +6,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/js/all.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/alpinejs" defer></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -13,6 +15,20 @@
 <div x-show="toast.visible" x-transition class="fixed top-5 right-5 z-50">
     <div class="bg-green-500 text-white px-4 py-2 rounded shadow-lg">
         <i class="fas fa-check-circle mr-2"></i><span x-text="toast.message"></span>
+    </div>
+</div>
+
+<!-- 日志弹窗 -->
+<div x-show="logModal.visible" x-transition class="fixed inset-0 z-40 bg-black bg-opacity-40 flex items-center justify-center">
+    <div class="bg-white w-11/12 max-w-5xl rounded-lg shadow-xl p-4 relative">
+        <h2 class="text-xl font-semibold mb-2">
+            <i class="fas fa-terminal text-green-600 mr-2"></i>
+            <span x-text="logModal.title"></span>
+        </h2>
+        <button class="absolute top-2 right-3 text-gray-500 hover:text-red-500 text-xl" @click="closeLogModal()">×</button>
+        <pre class="bg-gray-900 text-white p-3 overflow-y-auto max-h-[60vh] rounded">
+<code id="logContent" class="plaintext whitespace-pre-wrap"></code>
+        </pre>
     </div>
 </div>
 
@@ -27,6 +43,9 @@
         <p><strong>状态:</strong> ✅ <span class="text-green-600">{{ .Active.Status }}</span></p>
         <p><strong>启动时间:</strong> {{ .Active.StartTime }}</p>
         <p><strong>版本:</strong> {{ .Active.Version }}</p>
+        <button @click="openLogModal('current')" class="mt-2 bg-gray-800 text-white px-4 py-1 rounded hover:bg-gray-900 text-sm">
+            📄 查看日志
+        </button>
     </div>
     {{ else }}
     <div class="mb-6 p-4 border-l-4 border-gray-400 bg-gray-50 rounded">
@@ -59,6 +78,9 @@
             <button type="submit" class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">
                 🔄 切换到新版本
             </button>
+            <button type="button" @click="openLogModal('new')" class="ml-3 bg-gray-700 text-white px-3 py-1 rounded hover:bg-gray-800 text-sm">
+                📄 查看日志
+            </button>
         </form>
     </div>
     {{ else }}
@@ -81,8 +103,14 @@
             },
             progress: 0,
 
+            logModal: {
+                visible: false,
+                title: '',
+                source: null,
+            },
+
             init() {
-                // 可在此初始化状态
+                hljs.highlightAll();
             },
 
             showToast(msg) {
@@ -124,16 +152,41 @@
             },
 
             switchService() {
-                fetch('/switch', {
-                    method: 'POST'
-                }).then(resp => {
-                    if (resp.ok) {
-                        this.showToast("切换成功 ✅");
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        this.showToast("切换失败 ❌");
-                    }
-                });
+                fetch('/switch', { method: 'POST' })
+                    .then(resp => {
+                        if (resp.ok) {
+                            this.showToast("切换成功 ✅");
+                            setTimeout(() => location.reload(), 1500);
+                        } else {
+                            this.showToast("切换失败 ❌");
+                        }
+                    });
+            },
+
+            openLogModal(service) {
+                this.logModal.title = service === 'current' ? '当前服务日志' : '新服务日志';
+                this.logModal.visible = true;
+                const logContent = document.getElementById('logContent');
+                logContent.textContent = '';
+
+                if (this.logModal.source) {
+                    this.logModal.source.close();
+                }
+
+                this.logModal.source = new EventSource(`/stream-log/${service}`);
+                this.logModal.source.onmessage = (event) => {
+                    logContent.textContent += event.data + '\n';
+                    logContent.scrollTop = logContent.scrollHeight;
+                    hljs.highlightElement(logContent);
+                };
+            },
+
+            closeLogModal() {
+                if (this.logModal.source) {
+                    this.logModal.source.close();
+                    this.logModal.source = null;
+                }
+                this.logModal.visible = false;
             }
         }
     }
