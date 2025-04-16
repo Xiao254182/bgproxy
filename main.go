@@ -96,6 +96,7 @@ func indexHandler(c *gin.Context) {
 // 日志接口
 func streamLogHandler(c *gin.Context) {
 	service := c.Param("service")
+	full := c.DefaultQuery("full", "0") == "1" // 新增：获取 full 参数
 	var instance *ServiceInstance
 
 	mu.Lock()
@@ -125,29 +126,28 @@ func streamLogHandler(c *gin.Context) {
 
 	reader := bufio.NewReader(file)
 
-	// 先返回整个文件的内容（历史日志）
-	file.Seek(0, 0) // 从文件开始读取
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			break // 文件内容全部读取完
+	// 根据 full 参数决定是否读取历史日志
+	if full {
+		file.Seek(0, 0)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				break
+			}
+			fmt.Fprintf(c.Writer, "data: %s\n\n", line)
+			c.Writer.Flush()
 		}
-		fmt.Fprintf(c.Writer, "data: %s\n\n", line)
-		c.Writer.Flush()
+	} else {
+		file.Seek(0, 2) // 直接跳到文件末尾
 	}
 
-	// 然后开始实时输出新日志
-	// 跳过文件的现有内容，从末尾开始读取
-	file.Seek(0, 2)
-
+	// 实时读取新增日志
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			// 如果没有新内容，继续等待
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
-		// 输出新的日志行到前端
 		fmt.Fprintf(c.Writer, "data: %s\n\n", line)
 		c.Writer.Flush()
 	}

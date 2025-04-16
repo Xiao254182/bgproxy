@@ -7,7 +7,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/js/all.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/alpinejs" defer></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -27,8 +26,20 @@
         </h2>
         <button class="absolute top-2 right-3 text-gray-500 hover:text-red-500 text-xl" @click="closeLogModal()">×</button>
         <pre class="bg-gray-900 text-white p-3 overflow-y-auto max-h-[60vh] rounded">
-<code id="logContent" class="plaintext whitespace-pre-wrap"></code>
+            <code id="logContent" class="plaintext whitespace-pre-wrap"></code>
         </pre>
+        <!-- 修改后的控制按钮 -->
+        <div class="mt-2 flex justify-between items-center">
+            <button @click="toggleLogMode()"
+                    class="text-blue-500 hover:text-blue-600 text-sm">
+                <span x-show="!logModal.isFullLog">📜 当前为实时日志，点击展示全部日志</span>
+                <span x-show="logModal.isFullLog">⏱ 当前为全部日志，点击切换实时</span>
+            </button>
+            <button @click="closeLogModal()"
+                    class="text-gray-600 hover:text-gray-800 text-sm">
+                关闭
+            </button>
+        </div>
     </div>
 </div>
 
@@ -102,16 +113,17 @@
                 message: '',
             },
             progress: 0,
-
             logModal: {
                 visible: false,
                 title: '',
+                service: 'current', // 新增：记录当前查看的服务类型
                 source: null,
+                isFullLog: false, // 新增这个字段来展示按钮
             },
 
-            init() {
-                hljs.highlightAll();
-            },
+            // init() {
+            //     hljs.highlightAll();
+            // },
 
             showToast(msg) {
                 this.toast.message = msg;
@@ -165,6 +177,7 @@
 
             openLogModal(service) {
                 this.logModal.title = service === 'current' ? '当前服务日志' : '新服务日志';
+                this.logModal.service = service; // 记录服务类型
                 this.logModal.visible = true;
                 const logContent = document.getElementById('logContent');
                 logContent.textContent = '';
@@ -173,7 +186,50 @@
                     this.logModal.source.close();
                 }
 
+                // 默认不加载历史日志
                 this.logModal.source = new EventSource(`/stream-log/${service}`);
+                this.logModal.source.onmessage = (event) => {
+                    logContent.textContent += event.data + '\n';
+                    logContent.scrollTop = logContent.scrollHeight;
+                    hljs.highlightElement(logContent);
+                };
+            },
+
+            loadFullLog() {
+                const service = this.logModal.service;
+                const logContent = document.getElementById('logContent');
+                logContent.textContent = ''; // 清空当前内容
+
+                // 关闭之前的实时 SSE 连接
+                if (this.logModal.source) {
+                    this.logModal.source.close();
+                    this.logModal.source = null;
+                }
+
+                // 使用 full=1 参数拉取完整日志
+                this.logModal.source = new EventSource(`/stream-log/${service}?full=1`);
+                this.logModal.source.onmessage = (event) => {
+                    logContent.textContent += event.data + '\n';
+                    logContent.scrollTop = logContent.scrollHeight;
+                    hljs.highlightElement(logContent);
+                };
+            },
+
+            toggleLogMode() {
+                this.logModal.isFullLog = !this.logModal.isFullLog;
+                this.loadLog(this.logModal.service, this.logModal.isFullLog);
+            },
+
+            loadLog(service, full) {
+                const logContent = document.getElementById('logContent');
+                logContent.textContent = '';
+
+                if (this.logModal.source) {
+                    this.logModal.source.close();
+                }
+
+                const url = `/stream-log/${service}` + (full ? '?full=1' : '');
+                this.logModal.source = new EventSource(url);
                 this.logModal.source.onmessage = (event) => {
                     logContent.textContent += event.data + '\n';
                     logContent.scrollTop = logContent.scrollHeight;
@@ -191,5 +247,6 @@
         }
     }
 </script>
+<!--<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>-->
 </body>
 </html>
