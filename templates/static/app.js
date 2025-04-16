@@ -1,4 +1,4 @@
-function serviceApp() {
+window.serviceApp = function () {
     return {
         toast: {
             visible: false,
