@@ -1,34 +1,142 @@
 <!DOCTYPE html>
-<html>
-<head><title>服务管理</title></head>
-<body>
-<h1>当前服务</h1>
-{{ if .Active }}
-<p>状态: {{ .Active.Status }}</p>
-<p>启动时间: {{ .Active.StartTime }}</p>
-<p>版本: {{ .Active.Version }}</p>
-{{ else }}
-<p>暂无运行服务</p>
-{{ end }}
+<html lang="zh-CN" x-data="serviceApp()" x-init="init()">
+<head>
+    <meta charset="UTF-8">
+    <title>服务管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/js/all.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/alpinejs" defer></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
 
-<h2>上传 JAR</h2>
-<form action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="jar" />
-    <button type="submit">部署</button>
-</form>
+<!-- Toast -->
+<div x-show="toast.visible" x-transition class="fixed top-5 right-5 z-50">
+    <div class="bg-green-500 text-white px-4 py-2 rounded shadow-lg">
+        <i class="fas fa-check-circle mr-2"></i><span x-text="toast.message"></span>
+    </div>
+</div>
 
-<h2>新服务</h2>
-{{ if .New }}
-<p>状态: {{ .New.Status }}</p>
-<p>启动时间: {{ .New.StartTime }}</p>
-<p>版本: {{ .New.Version }}</p>
-<form action="/switch" method="post">
-    <button type="submit">切换到新版本</button>
-</form>
-{{ else }}
-<p>暂无新服务</p>
-{{ end }}
+<div class="max-w-3xl mx-auto mt-10 bg-white p-8 rounded-xl shadow-md">
 
-<p><a href="/versions">历史版本</a></p>
+    <h1 class="text-3xl font-bold mb-6 flex items-center gap-2">
+        <i class="fas fa-server text-green-500"></i> 当前服务
+    </h1>
+
+    {{ if .Active }}
+    <div class="mb-6 p-4 border-l-4 border-green-500 bg-green-50 rounded">
+        <p><strong>状态:</strong> ✅ <span class="text-green-600">{{ .Active.Status }}</span></p>
+        <p><strong>启动时间:</strong> {{ .Active.StartTime }}</p>
+        <p><strong>版本:</strong> {{ .Active.Version }}</p>
+    </div>
+    {{ else }}
+    <div class="mb-6 p-4 border-l-4 border-gray-400 bg-gray-50 rounded">
+        <p><strong>状态:</strong> 🚫 <span class="text-gray-500">暂无运行服务</span></p>
+    </div>
+    {{ end }}
+
+    <h2 class="text-2xl font-semibold mb-3 flex items-center gap-2">
+        <i class="fas fa-upload text-blue-500"></i> 上传 JAR
+    </h2>
+    <form id="uploadForm" class="mb-8" @submit.prevent="uploadJar">
+        <input type="file" name="jar" id="jarFile" class="block mb-3" />
+        <div class="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+            <div class="bg-blue-500 h-2 transition-all" :style="'width: ' + progress + '%'"></div>
+        </div>
+        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+            🚀 部署
+        </button>
+    </form>
+
+    <h2 class="text-2xl font-semibold mb-3 flex items-center gap-2">
+        <i class="fas fa-code-branch text-orange-500"></i> 新服务
+    </h2>
+    {{ if .New }}
+    <div class="mb-4 p-4 border-l-4 border-orange-400 bg-orange-50 rounded">
+        <p><strong>状态:</strong> 🟠 <span class="text-orange-600">{{ .New.Status }}</span></p>
+        <p><strong>启动时间:</strong> {{ .New.StartTime }}</p>
+        <p><strong>版本:</strong> {{ .New.Version }}</p>
+        <form @submit.prevent="switchService" method="post" class="mt-3">
+            <button type="submit" class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">
+                🔄 切换到新版本
+            </button>
+        </form>
+    </div>
+    {{ else }}
+    <p class="text-gray-500">暂无新服务</p>
+    {{ end }}
+
+    <div class="mt-8">
+        <a href="/versions" class="text-blue-600 hover:underline">
+            📜 查看历史版本
+        </a>
+    </div>
+</div>
+
+<script>
+    function serviceApp() {
+        return {
+            toast: {
+                visible: false,
+                message: '',
+            },
+            progress: 0,
+
+            init() {
+                // 可在此初始化状态
+            },
+
+            showToast(msg) {
+                this.toast.message = msg;
+                this.toast.visible = true;
+                setTimeout(() => this.toast.visible = false, 3000);
+            },
+
+            uploadJar() {
+                const fileInput = document.getElementById('jarFile');
+                if (!fileInput.files.length) {
+                    this.showToast("请选择文件");
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append("jar", fileInput.files[0]);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", "/upload", true);
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        this.progress = Math.round((e.loaded / e.total) * 100);
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status === 200) {
+                        this.progress = 100;
+                        this.showToast("上传成功 ✅");
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        this.showToast("上传失败 ❌");
+                    }
+                };
+
+                xhr.send(formData);
+            },
+
+            switchService() {
+                fetch('/switch', {
+                    method: 'POST'
+                }).then(resp => {
+                    if (resp.ok) {
+                        this.showToast("切换成功 ✅");
+                        setTimeout(() => location.reload(), 1500);
+                    } else {
+                        this.showToast("切换失败 ❌");
+                    }
+                });
+            }
+        }
+    }
+</script>
 </body>
 </html>
