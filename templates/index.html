@@ -6,6 +6,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/js/all.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/alpinejs" defer></script>
+    <script src="static/app.js" defer></script>
 </head>
 <body class="bg-gray-100 text-gray-800">
 
@@ -25,26 +26,21 @@
         </h2>
         <button class="absolute top-2 right-3 text-gray-500 hover:text-red-500 text-xl" @click="closeLogModal()">×</button>
 
-        <!-- ✅ 新结构：滚动放在外层 div，内容放 code 里 -->
         <div class="bg-gray-900 text-white p-3 overflow-y-auto max-h-[60vh] rounded text-sm" x-ref="logContainer">
             <pre><code x-ref="logContent" class="whitespace-pre-wrap"></code></pre>
         </div>
 
-        <!-- 控制按钮 -->
         <div class="mt-2 flex justify-between items-center">
-            <button @click="toggleLogMode()"
-                    class="text-blue-500 hover:text-blue-600 text-sm">
+            <button @click="toggleLogMode()" class="text-blue-500 hover:text-blue-600 text-sm">
                 <span x-show="!logModal.isFullLog">📜 当前为实时日志，点击展示全部日志</span>
                 <span x-show="logModal.isFullLog">⏱ 当前为全部日志，点击切换实时</span>
             </button>
-            <button @click="closeLogModal()"
-                    class="text-gray-600 hover:text-gray-800 text-sm">
+            <button @click="closeLogModal()" class="text-gray-600 hover:text-gray-800 text-sm">
                 关闭
             </button>
         </div>
     </div>
 </div>
-
 
 <!-- 主体内容 -->
 <div class="max-w-3xl mx-auto mt-10 bg-white p-8 rounded-xl shadow-md">
@@ -108,138 +104,6 @@
         </a>
     </div>
 </div>
-
-<script>
-    function serviceApp() {
-        return {
-            toast: {
-                visible: false,
-                message: '',
-            },
-            progress: 0,
-            logModal: {
-                visible: false,
-                title: '',
-                service: 'current',
-                source: null,
-                isFullLog: false,
-            },
-
-            scrollToBottom() {
-                requestAnimationFrame(() => {
-                    const container = this.$refs.logContainer;
-                    container.scrollTop = container.scrollHeight;
-                });
-            },
-
-            showToast(msg) {
-                this.toast.message = msg;
-                this.toast.visible = true;
-                setTimeout(() => this.toast.visible = false, 3000);
-            },
-
-            uploadJar() {
-                const fileInput = document.getElementById('jarFile');
-                if (!fileInput.files.length) {
-                    this.showToast("请选择文件");
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append("jar", fileInput.files[0]);
-
-                const xhr = new XMLHttpRequest();
-                xhr.open("POST", "/upload", true);
-
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable) {
-                        this.progress = Math.round((e.loaded / e.total) * 100);
-                    }
-                };
-
-                xhr.onload = () => {
-                    if (xhr.status === 200) {
-                        this.progress = 100;
-                        this.showToast("上传成功 ✅");
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        this.showToast("上传失败 ❌");
-                    }
-                };
-
-                xhr.send(formData);
-            },
-
-            switchService() {
-                fetch('/switch', { method: 'POST' })
-                    .then(resp => {
-                        if (resp.ok) {
-                            this.showToast("切换成功 ✅");
-                            setTimeout(() => location.reload(), 1500);
-                        } else {
-                            this.showToast("切换失败 ❌");
-                        }
-                    });
-            },
-
-            openLogModal(service) {
-                this.logModal.title = service === 'current' ? '当前服务日志' : '新服务日志';
-                this.logModal.service = service;
-                this.logModal.visible = true;
-                this.logModal.isFullLog = false;
-                this.loadLog(service, false);
-                this.logModal.source.onmessage = (event) => {
-                    this.$refs.logContent.textContent += event.data + '\n';
-                    this.scrollToBottom();
-                };
-            },
-
-            loadFullLog() {
-                this.loadLog(this.logModal.service, true);
-                this.logModal.source.onmessage = (event) => {
-                    this.$refs.logContent.textContent += event.data + '\n';
-                    this.scrollToBottom();
-                };
-            },
-
-            toggleLogMode() {
-                this.logModal.isFullLog = !this.logModal.isFullLog;
-                this.loadLog(this.logModal.service, this.logModal.isFullLog);
-            },
-
-            loadLog(service, full) {
-                const el = this.$refs.logContent;
-                el.textContent = '';
-
-                if (this.logModal.source) {
-                    this.logModal.source.close();
-                }
-
-                const url = `/stream-log/${service}` + (full ? '?full=1' : '');
-                this.logModal.source = new EventSource(url);
-                this.logModal.source.onmessage = (event) => {
-                    el.textContent += event.data + '\n';
-                    this.scrollToBottom();
-                };
-
-                // 初始渲染后滚到底
-                setTimeout(() => this.scrollToBottom(), 50);
-                this.logModal.source.onmessage = (event) => {
-                    this.$refs.logContent.textContent += event.data + '\n';
-                    this.scrollToBottom();
-                };
-            },
-
-            closeLogModal() {
-                if (this.logModal.source) {
-                    this.logModal.source.close();
-                    this.logModal.source = null;
-                }
-                this.logModal.visible = false;
-            }
-        }
-    }
-</script>
 
 </body>
 </html>
