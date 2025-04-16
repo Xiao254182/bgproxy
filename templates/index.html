@@ -24,10 +24,13 @@
             <span x-text="logModal.title"></span>
         </h2>
         <button class="absolute top-2 right-3 text-gray-500 hover:text-red-500 text-xl" @click="closeLogModal()">×</button>
-        <pre class="bg-gray-900 text-white p-3 overflow-y-auto max-h-[60vh] rounded">
-            <code id="logContent" class="plaintext whitespace-pre-wrap"></code>
-        </pre>
-        <!-- 修改后的控制按钮 -->
+
+        <!-- ✅ 新结构：滚动放在外层 div，内容放 code 里 -->
+        <div class="bg-gray-900 text-white p-3 overflow-y-auto max-h-[60vh] rounded text-sm" x-ref="logContainer">
+            <pre><code x-ref="logContent" class="whitespace-pre-wrap"></code></pre>
+        </div>
+
+        <!-- 控制按钮 -->
         <div class="mt-2 flex justify-between items-center">
             <button @click="toggleLogMode()"
                     class="text-blue-500 hover:text-blue-600 text-sm">
@@ -42,6 +45,8 @@
     </div>
 </div>
 
+
+<!-- 主体内容 -->
 <div class="max-w-3xl mx-auto mt-10 bg-white p-8 rounded-xl shadow-md">
 
     <h1 class="text-3xl font-bold mb-6 flex items-center gap-2">
@@ -115,9 +120,16 @@
             logModal: {
                 visible: false,
                 title: '',
-                service: 'current', // 新增：记录当前查看的服务类型
+                service: 'current',
                 source: null,
-                isFullLog: false, // 新增这个字段来展示按钮
+                isFullLog: false,
+            },
+
+            scrollToBottom() {
+                requestAnimationFrame(() => {
+                    const container = this.$refs.logContainer;
+                    container.scrollTop = container.scrollHeight;
+                });
             },
 
             showToast(msg) {
@@ -172,39 +184,21 @@
 
             openLogModal(service) {
                 this.logModal.title = service === 'current' ? '当前服务日志' : '新服务日志';
-                this.logModal.service = service; // 记录服务类型
+                this.logModal.service = service;
                 this.logModal.visible = true;
-                const logContent = document.getElementById('logContent');
-                logContent.textContent = '';
-
-                if (this.logModal.source) {
-                    this.logModal.source.close();
-                }
-
-                // 默认不加载历史日志
-                this.logModal.source = new EventSource(`/stream-log/${service}`);
+                this.logModal.isFullLog = false;
+                this.loadLog(service, false);
                 this.logModal.source.onmessage = (event) => {
-                    logContent.textContent += event.data + '\n';
-                    logContent.scrollTop = logContent.scrollHeight;
+                    this.$refs.logContent.textContent += event.data + '\n';
+                    this.scrollToBottom();
                 };
             },
 
             loadFullLog() {
-                const service = this.logModal.service;
-                const logContent = document.getElementById('logContent');
-                logContent.textContent = ''; // 清空当前内容
-
-                // 关闭之前的实时 SSE 连接
-                if (this.logModal.source) {
-                    this.logModal.source.close();
-                    this.logModal.source = null;
-                }
-
-                // 使用 full=1 参数拉取完整日志
-                this.logModal.source = new EventSource(`/stream-log/${service}?full=1`);
+                this.loadLog(this.logModal.service, true);
                 this.logModal.source.onmessage = (event) => {
-                    logContent.textContent += event.data + '\n';
-                    logContent.scrollTop = logContent.scrollHeight;
+                    this.$refs.logContent.textContent += event.data + '\n';
+                    this.scrollToBottom();
                 };
             },
 
@@ -214,8 +208,8 @@
             },
 
             loadLog(service, full) {
-                const logContent = document.getElementById('logContent');
-                logContent.textContent = '';
+                const el = this.$refs.logContent;
+                el.textContent = '';
 
                 if (this.logModal.source) {
                     this.logModal.source.close();
@@ -224,8 +218,15 @@
                 const url = `/stream-log/${service}` + (full ? '?full=1' : '');
                 this.logModal.source = new EventSource(url);
                 this.logModal.source.onmessage = (event) => {
-                    logContent.textContent += event.data + '\n';
-                    logContent.scrollTop = logContent.scrollHeight;
+                    el.textContent += event.data + '\n';
+                    this.scrollToBottom();
+                };
+
+                // 初始渲染后滚到底
+                setTimeout(() => this.scrollToBottom(), 50);
+                this.logModal.source.onmessage = (event) => {
+                    this.$refs.logContent.textContent += event.data + '\n';
+                    this.scrollToBottom();
                 };
             },
 
@@ -239,5 +240,6 @@
         }
     }
 </script>
+
 </body>
 </html>
