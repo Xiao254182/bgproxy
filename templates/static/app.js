@@ -71,6 +71,7 @@ window.serviceApp = function () {
         },
 
         openLogModal(service) {
+            console.trace(`🔥 openLogModal(${service}) 被调用了`);
             this.logModal.title = service === 'current' ? '当前服务日志' : '新服务日志';
             this.logModal.service = service;
             this.logModal.visible = true;
