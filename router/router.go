@@ -7,6 +7,7 @@ import (
 	"bgproxy/utils"
 	"github.com/gin-gonic/gin"
 	"html/template"
+	"io/fs"
 	"net/http"
 )
 
@@ -21,13 +22,15 @@ func indexHandler(c *gin.Context) {
 	})
 }
 
-func Router() *gin.Engine {
+// Router 创建 Gin 引擎，接收预处理好的模板和静态文件系统
+func Router(tmpl *template.Template, staticFS fs.FS) *gin.Engine {
 	r := gin.Default()
 
-	tmpl := template.Must(template.New("").ParseGlob("templates/*.html"))
+	// 设置模板和静态资源
 	r.SetHTMLTemplate(tmpl)
-	r.Static("/static", "./templates/static")
+	r.StaticFS("/static", http.FS(staticFS))
 
+	// 注册路由
 	r.GET("/", indexHandler)
 	r.GET("/status", service.StatusHandler)
 	r.GET("/versions", service.VersionsHandler)
