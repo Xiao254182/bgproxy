@@ -77,7 +77,7 @@ window.serviceApp = function () {
             xhr.onload = () => {
                 if (xhr.status === 200) {
                     this.progress = 100;
-                    this.showToast("上传成功 ✅");
+                    this.showToast("部署成功 ✅");
 
                     // 解决闪一下问题：刷新前清除状态
                     this.uploadedFile = null;
@@ -85,7 +85,7 @@ window.serviceApp = function () {
 
                     setTimeout(() => location.reload(), 1500);
                 } else {
-                    this.showToast("上传失败 ❌");
+                    this.showToast("部署失败 ❌");
                 }
             };
 
@@ -105,7 +105,6 @@ window.serviceApp = function () {
         },
 
         openLogModal(service) {
-            console.trace(`🔥 openLogModal(${service}) 被调用了`);
             this.logModal.title = service === 'current' ? '当前服务日志' : '新服务日志';
             this.logModal.service = service;
             this.logModal.visible = true;
