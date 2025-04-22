@@ -82,14 +82,16 @@
     </div>
 
     <!-- 显示当前上传的文件 -->
-    <div x-show="uploadedFile" class="mb-3 p-4 border-2 border-green-300 bg-green-50 rounded-lg text-center">
-        <p class="text-green-700">当前上传的文件: <span x-text="uploadedFile.name" class="font-bold"></span></p>
-        <button class="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" @click="removeFile">删除</button>
-    </div>
+    <template x-if="uploadedFile">
+        <div x-cloak class="mb-3 p-4 border-2 border-green-300 bg-green-50 rounded-lg text-center">
+            <p class="text-green-700">当前上传的文件: <span x-text="uploadedFile.name" class="font-bold"></span></p>
+            <button class="mt-2 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600" @click="removeFile">删除</button>
+        </div>
+    </template>
 
     <!-- 上传进度条 -->
     <div class="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
-        <div class="bg-blue-500 h-2 transition-all" :style="'width: ' + progress + '%'"></div>
+        <div x-cloak class="bg-blue-500 h-2 transition-all" :style="'width: ' + progress + '%'"></div>
     </div>
     <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" @click="uploadJar">
         🚀 部署

@@ -80,7 +80,12 @@ window.serviceApp = function () {
                 if (xhr.status === 200) {
                     this.progress = 100;
                     this.showToast("上传成功 ✅");
-                    setTimeout(() => location.reload(), 1500); // 上传后刷新页面
+
+                    // 解决闪一下问题：刷新前清除状态
+                    this.uploadedFile = null;
+                    this.progress = 0;
+
+                    setTimeout(() => location.reload(), 1500);
                 } else {
                     this.showToast("上传失败 ❌");
                 }
