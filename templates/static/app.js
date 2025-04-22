@@ -41,7 +41,6 @@ window.serviceApp = function () {
             const file = event.dataTransfer.files[0];
             if (file) {
                 this.uploadedFile = file;
-                this.uploadJar();
             }
         },
 
@@ -49,7 +48,6 @@ window.serviceApp = function () {
             const file = event.target.files[0];
             if (file) {
                 this.uploadedFile = file;
-                this.uploadJar();
             }
         },
 
