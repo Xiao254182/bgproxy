@@ -5,6 +5,8 @@ window.serviceApp = function () {
             message: '',
         },
         progress: 0,
+        dragOver: false, // 用于控制拖拽样式
+        uploadedFile: null, // 存储上传的文件信息
         logModal: {
             visible: false,
             title: '',
@@ -26,15 +28,44 @@ window.serviceApp = function () {
             setTimeout(() => this.toast.visible = false, 3000);
         },
 
+        handleDragOver() {
+            this.dragOver = true; // 当拖拽区域上方时
+        },
+
+        handleDragLeave() {
+            this.dragOver = false; // 当拖拽离开时
+        },
+
+        handleDrop(event) {
+            this.dragOver = false; // 拖拽结束
+            const file = event.dataTransfer.files[0];
+            if (file) {
+                this.uploadedFile = file;
+                this.uploadJar();
+            }
+        },
+
+        handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                this.uploadedFile = file;
+                this.uploadJar();
+            }
+        },
+
+        removeFile() {
+            this.uploadedFile = null;
+            document.getElementById('jarFile').value = ''; // 清空文件选择框
+        },
+
         uploadJar() {
-            const fileInput = document.getElementById('jarFile');
-            if (!fileInput.files.length) {
+            if (!this.uploadedFile) {
                 this.showToast("请选择文件");
                 return;
             }
 
             const formData = new FormData();
-            formData.append("jar", fileInput.files[0]);
+            formData.append("jar", this.uploadedFile);
 
             const xhr = new XMLHttpRequest();
             xhr.open("POST", "/upload", true);
@@ -49,7 +80,7 @@ window.serviceApp = function () {
                 if (xhr.status === 200) {
                     this.progress = 100;
                     this.showToast("上传成功 ✅");
-                    setTimeout(() => location.reload(), 1500);
+                    setTimeout(() => location.reload(), 1500); // 上传后刷新页面
                 } else {
                     this.showToast("上传失败 ❌");
                 }
