@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+// 测试neogit多文件git提交
+
 // 启动新服务
 func StartNewService(jarPath string, port int) error {
 	models.Mu.Lock()
